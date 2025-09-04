@@ -11,10 +11,10 @@ from .views import (
 from core.views_src.sync import SyncPushView, SyncPullView
 
 router = DefaultRouter()
-router.register(r'transactions', TransactionViewSet)
-router.register(r'people', PersonViewSet)
-router.register(r'events', EventViewSet)
-router.register(r'wishlistitems', WishlistItemViewSet)  # <-- existing line
+router.register(r'transactions', TransactionViewSet, basename='transaction')
+router.register(r'people', PersonViewSet, basename='person')
+router.register(r'events', EventViewSet, basename='event')
+router.register(r'wishlistitems', WishlistItemViewSet, basename='wishlistitem')
 
 urlpatterns = [
     path('', include(router.urls)),
