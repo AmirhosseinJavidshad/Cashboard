@@ -1,6 +1,11 @@
 from rest_framework import serializers
-from .models import Transaction, Person, Event, WishlistItem
+from .models import Transaction, Person, Event, WishlistItem, User
 
+class UserSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ["id", "username", "email", "is_guest", "guest_uuid"]
+        
 # ---------------- Transaction ----------------
 class TransactionSerializer(serializers.ModelSerializer):
     class Meta:

@@ -5,7 +5,8 @@ from .views import (
     PersonViewSet,
     EventViewSet,
     SummaryView,
-    WishlistItemViewSet
+    WishlistItemViewSet,
+    RegisterView   # ✅ import register view
 )
 from core.views_src.sync import SyncPushView, SyncPullView
 
@@ -18,6 +19,9 @@ router.register(r'wishlistitems', WishlistItemViewSet)  # <-- existing line
 urlpatterns = [
     path('', include(router.urls)),
     path('summary/', SummaryView.as_view(), name='summary'),
+
+    # ✅ registration endpoint
+    path('register/', RegisterView.as_view(), name='register'),
 
     # ---------------- Sync endpoints ----------------
     path('sync/push/', SyncPushView.as_view(), name='sync-push'),

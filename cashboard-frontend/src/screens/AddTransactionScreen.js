@@ -1,28 +1,16 @@
+// src/screens/AddTransactionScreen.js
 import React, { useState } from 'react';
 import {
-  View,
-  Text,
-  TextInput,
-  Button,
-  StyleSheet,
-  Switch,
-  ScrollView,
-  KeyboardAvoidingView,
-  Platform,
-  Alert,
+  View, Text, TextInput, Button, StyleSheet, Switch, ScrollView,
+  KeyboardAvoidingView, Platform, Alert
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import api from '../api/axios';
-import { MMKV } from 'react-native-mmkv';
 import 'react-native-get-random-values';
 import { v4 as uuidv4 } from 'uuid';
+import { insertEntity, syncAllData } from '../db/db';
 
-const storage = new MMKV({ id: 'transactions_store' });
-
-const isLoggedIn = () => !!storage.getString('auth_token');
-
-export default function AddTransactionScreen({ navigation }) {
+export default function AddTransactionScreen({ navigation, userId }) {
   const [transactionType, setTransactionType] = useState('expense');
   const [category, setCategory] = useState('');
   const [amount, setAmount] = useState('');
@@ -59,57 +47,40 @@ export default function AddTransactionScreen({ navigation }) {
     { label: 'Yearly', value: 'yearly' },
   ];
 
-  const saveTransactionLocally = (transaction) => {
-    const current = JSON.parse(storage.getString('transactions') || '[]');
-    current.unshift(transaction);
-    storage.set('transactions', JSON.stringify(current));
-  };
-
-  const markTransactionSynced = (clientUUID) => {
-    const current = JSON.parse(storage.getString('transactions') || '[]');
-    const updated = current.map(tx =>
-      tx.client_uuid === clientUUID ? { ...tx, synced: true } : tx
-    );
-    storage.set('transactions', JSON.stringify(updated));
-  };
-
   const handleSubmit = async () => {
     if (!category) { Alert.alert('Error', 'Please select a category.'); return; }
     const parsedAmount = parseInt(amount);
-    if (!amount || isNaN(parsedAmount) || parsedAmount <= 0) {
-      Alert.alert('Error', 'Please enter a valid amount.'); return;
-    }
+    if (!amount || isNaN(parsedAmount) || parsedAmount <= 0) { Alert.alert('Error', 'Please enter a valid amount.'); return; }
     if (!bankAccount.trim()) { Alert.alert('Error', 'Please enter the bank account.'); return; }
     if (isRecurring && !recurrencePeriod) { Alert.alert('Error', 'Please select a recurrence period.'); return; }
 
     const clientUUID = uuidv4();
     const transaction = {
-      client_uuid: clientUUID,
+      id: clientUUID,
+      user_id: userId,
       transaction_type: transactionType,
       category,
       amount: parsedAmount,
-      date: date.toISOString(),
-      bank_account: bankAccount,
-      note,
-      is_recurring: isRecurring,
-      recurrence_period: isRecurring ? recurrencePeriod : null,
-      recurrence_end_date: isRecurring ? recurrenceEndDate.toISOString().split('T')[0] : null,
-      synced: false,
-      deleted_at: null, // NEW: soft-delete field
+      recurrence: isRecurring ? recurrencePeriod : null,
+      account: bankAccount,
+      notes: note,
+      created_at: date.toISOString(),
+      updated_at: new Date().toISOString(),
+      synced: 0,
+      deleted_at: null
     };
 
-    saveTransactionLocally(transaction);
+    try {
+      await insertEntity('transactions', transaction);
 
-    if (isLoggedIn()) {
-      try {
-        await api.post('transactions/', transaction);
-        markTransactionSynced(clientUUID);
-      } catch (err) {
-        console.log('Online sync failed — will retry later.', err.message);
-      }
+      // ⚡ Trigger sync after insert
+      await syncAllData(userId);
+
+      navigation.goBack();
+    } catch (err) {
+      console.log('Error saving transaction locally', err);
+      Alert.alert('Error', 'Failed to save transaction. Please try again.');
     }
-
-    navigation.goBack();
   };
 
   return (

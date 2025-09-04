@@ -1,7 +1,24 @@
 from django.db import models
 from django.utils import timezone
 from .mixins import TimestampedMixin
+from django.contrib.auth.models import AbstractUser
+import uuid
 
+class User(AbstractUser):
+    is_guest = models.BooleanField(default=False)
+    guest_uuid = models.UUIDField(
+        default=uuid.uuid4,
+        editable=False,
+        unique=True,
+        null=True,
+        blank=True
+    )
+
+    def __str__(self):
+        if self.is_guest:
+            return f"Guest-{self.guest_uuid}"
+        return self.username
+    
 class Transaction(TimestampedMixin, models.Model):
     INCOME = 'income'
     EXPENSE = 'expense'
@@ -47,9 +64,6 @@ class Transaction(TimestampedMixin, models.Model):
         null=True
     )
     recurrence_end_date = models.DateField(blank=True, null=True)
-    created_at = models.DateTimeField(auto_now_add=True, null=True)
-    updated_at = models.DateTimeField(auto_now=True)
-    deleted_at = models.DateTimeField(blank=True, null=True, help_text="Soft-delete timestamp")
 
     def __str__(self):
         return f"{self.transaction_type.title()} - {self.amount} Toman"
@@ -69,6 +83,5 @@ class WishlistItem(TimestampedMixin, models.Model):
     price = models.CharField(max_length=100)
     url = models.URLField()
     image_url = models.URLField(blank=True, null=True)
-    updated_at = models.DateTimeField(auto_now=True)
     def __str__(self):
         return self.title

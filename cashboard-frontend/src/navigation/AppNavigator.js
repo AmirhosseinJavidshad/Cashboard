@@ -8,6 +8,8 @@ import TransactionsScreen from './screens/TransactionsScreen';
 import AddTransactionScreen from './screens/AddTransactionScreen';
 import DashboardScreen from './screens/DashboardScreen';
 import GoalsScreen from './screens/GoalsScreen';
+import DbTestScreen from './screens/DbTestScreen';
+
 
 const Tab = createBottomTabNavigator();
 const TransactionsStack = createNativeStackNavigator();
@@ -46,6 +48,7 @@ export default function AppNavigator() {
         <Tab.Screen name="Transactions" component={TransactionsStackNavigator} />
         <Tab.Screen name="Dashboard" component={DashboardScreen} />
         <Tab.Screen name="Goals" component={GoalsScreen} />
+        <Tab.Screen name="DBTest" component={DbTestScreen} />
       </Tab.Navigator>
     </NavigationContainer>
   );

@@ -1,3 +1,4 @@
+// src/screens/DashboardScreen.js
 import React, { useEffect, useState } from 'react';
 import {
   View,
@@ -7,34 +8,54 @@ import {
   Dimensions,
   ActivityIndicator,
 } from 'react-native';
-import {
-  BarChart,
-  PieChart,
-} from 'react-native-gifted-charts';
-import api from '../api/axios';
+import { BarChart, PieChart } from 'react-native-gifted-charts';
+import { getEntities, syncAllData } from '../db';
 
 const screenWidth = Dimensions.get('window').width;
 
-const DashboardScreen = () => {
+const DashboardScreen = ({ userId }) => {
   const [transactions, setTransactions] = useState([]);
+  const [persons, setPersons] = useState([]);
+  const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [dailyData, setDailyData] = useState([]);
   const [expensePieData, setExpensePieData] = useState([]);
   const [incomePieData, setIncomePieData] = useState([]);
 
   useEffect(() => {
-    fetchTransactions();
+    loadDashboardData();
   }, []);
 
-  const fetchTransactions = async () => {
+  const loadDashboardData = async () => {
     try {
-      const response = await api.get('transactions/?format=json');
-      const trx = response.data.results; // ✅ FIXED
-      setTransactions(trx);
-      processChartData(trx);
+      setLoading(true);
+
+      // Load local cached data first
+      const localTxns = await getEntities("transactions");
+      const localPersons = await getEntities("persons");
+      const localEvents = await getEntities("events");
+
+      setTransactions(localTxns);
+      setPersons(localPersons);
+      setEvents(localEvents);
+      processChartData(localTxns);
+
+      // Sync everything with backend
+      await syncAllData(userId);
+
+      // Reload updated local data
+      const updatedTxns = await getEntities("transactions");
+      const updatedPersons = await getEntities("persons");
+      const updatedEvents = await getEntities("events");
+
+      setTransactions(updatedTxns);
+      setPersons(updatedPersons);
+      setEvents(updatedEvents);
+      processChartData(updatedTxns);
+
       setLoading(false);
     } catch (error) {
-      console.error('Failed to fetch transactions:', error);
+      console.error('Failed to load dashboard data:', error);
       setLoading(false);
     }
   };
@@ -49,38 +70,30 @@ const DashboardScreen = () => {
     let incomeTotal = 0;
 
     data.forEach((trx) => {
-      const dateKey = trx.date.slice(0, 10); // yyyy-mm-dd
+      const dateKey = trx.created_at?.slice(0, 10);
       const amount = Number(trx.amount);
 
-      // Daily chart
-      if (!dailyTotals[dateKey]) {
-        dailyTotals[dateKey] = { income: 0, expense: 0 };
-      }
+      if (!dailyTotals[dateKey]) dailyTotals[dateKey] = { income: 0, expense: 0 };
       dailyTotals[dateKey][trx.transaction_type] += amount;
 
-      // Pie charts + recurring tracking
       if (trx.transaction_type === 'expense') {
         expenseBreakdown[trx.category] = (expenseBreakdown[trx.category] || 0) + amount;
         expenseTotal += amount;
-        if (trx.is_recurring) expenseRecurringTotal += amount;
+        if (trx.recurrence) expenseRecurringTotal += amount;
       } else {
         incomeBreakdown[trx.category] = (incomeBreakdown[trx.category] || 0) + amount;
         incomeTotal += amount;
-        if (trx.is_recurring) incomeRecurringTotal += amount;
+        if (trx.recurrence) incomeRecurringTotal += amount;
       }
     });
 
-    // Daily Bar Chart Data
     const sortedDates = Object.keys(dailyTotals).sort();
-    const barData = sortedDates.map((date) => ({
-      label: date.slice(5), // show MM-DD
+    setDailyData(sortedDates.map(date => ({
+      label: date.slice(5),
       income: dailyTotals[date].income,
       expense: dailyTotals[date].expense,
-    }));
+    })));
 
-    setDailyData(barData);
-
-    // Pie Data with legend formatting
     const formatPieData = (breakdown, total) =>
       Object.entries(breakdown).map(([category, value], index) => ({
         value,

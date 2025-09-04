@@ -1,59 +1,101 @@
 // GoalsScreen.js
 import React, { useState, useEffect } from 'react';
-import { 
-  View, Text, TextInput, Button, Image, FlatList, StyleSheet, Alert, ActivityIndicator 
+import {
+  View, Text, TextInput, Button, Image,
+  FlatList, StyleSheet, Alert, ActivityIndicator,
+  RefreshControl
 } from 'react-native';
+import {
+  getWishlistItems,
+  insertWishlistItem,
+  syncWishlistWithBackend
+} from '../db';
+import digikalaScraper from '../utils/digikalaScraper'; // JS scraper
 
 export default function GoalsScreen() {
   const [url, setUrl] = useState('');
   const [wishlist, setWishlist] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
-  // Fetch wishlist items from backend
-  const fetchWishlist = async () => {
+  // Load wishlist from SQLite
+  const loadWishlist = async () => {
     setLoading(true);
     try {
-      const response = await fetch('http://10.0.2.2:8000/api/wishlistitems/');
-      const json = await response.json();
-      setWishlist(json.results);
-    } catch (error) {
-      Alert.alert('Error', 'Failed to load wishlist items');
+      const items = await getWishlistItems();
+      setWishlist(items);
+    } catch (err) {
+      console.error('Failed to load wishlist', err);
+      Alert.alert('Error', 'Failed to load wishlist');
     } finally {
       setLoading(false);
     }
   };
 
+  // Sync local <-> backend
+  const syncWishlist = async () => {
+    try {
+      await syncWishlistWithBackend();
+      await loadWishlist(); // refresh after sync
+    } catch (err) {
+      console.error('Sync failed', err);
+    }
+  };
+
   useEffect(() => {
-    fetchWishlist();
+    loadWishlist();
+    syncWishlist();
   }, []);
 
-  // Submit new URL to backend
+  // Add new wishlist item
   const submitUrl = async () => {
     if (!url.trim()) {
       Alert.alert('Validation', 'Please enter a product URL');
       return;
     }
+
     setLoading(true);
     try {
-      const response = await fetch('http://10.0.2.2:8000/api/wishlistitems/', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ url }),
-      });
-      if (!response.ok) {
-        throw new Error('Failed to add product');
+      // 1️⃣ Try to scrape locally first
+      let scrapedData = { title: '', price: 0, image_url: null, updated_at: new Date() };
+      try {
+        const result = await digikalaScraper(url);
+        if (!result.error) {
+          scrapedData = result;
+        } else {
+          console.warn('Local scraper failed, will fallback to backend:', result.error);
+        }
+      } catch (scrapeErr) {
+        console.warn('Local scraping exception:', scrapeErr);
       }
+
+      // 2️⃣ Insert item locally with scraped info
+      await insertWishlistItem(
+        url,
+        scrapedData.title,
+        scrapedData.price,
+        scrapedData.image_url,
+        0 // synced flag
+      );
+
       setUrl('');
-      fetchWishlist(); // Refresh list
-    } catch (error) {
-      Alert.alert('Error', error.message);
+      await loadWishlist();
+
+      // 3️⃣ Trigger backend sync (will run digikala_scraper.py on server)
+      await syncWishlist();
+    } catch (err) {
+      console.error('Add wishlist failed', err);
+      Alert.alert('Error', 'Could not add wishlist item');
     } finally {
       setLoading(false);
     }
   };
 
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await syncWishlist();
+    setRefreshing(false);
+  };
 
   const renderItem = ({ item }) => (
     <View style={styles.itemContainer}>
@@ -65,9 +107,15 @@ export default function GoalsScreen() {
         </View>
       )}
       <View style={styles.textContainer}>
-        <Text style={styles.title}>{item.title || 'No Title'}</Text>
-        <Text style={styles.price}>{item.price ? item.price + ' Toman' : 'No Price'}</Text>
-        <Text style={styles.date}>{new Date(item.updated_at).toLocaleDateString()}</Text>
+        <Text style={styles.title}>{item.title || 'No Title (waiting for sync)'}</Text>
+        <Text style={styles.price}>
+          {item.price ? `${item.price} Toman` : 'No Price yet'}
+        </Text>
+        {item.updated_at && (
+          <Text style={styles.date}>
+            {new Date(item.updated_at).toLocaleDateString()}
+          </Text>
+        )}
       </View>
     </View>
   );
@@ -95,6 +143,9 @@ export default function GoalsScreen() {
           renderItem={renderItem}
           contentContainerStyle={{ paddingVertical: 20 }}
           ListEmptyComponent={<Text>No wishlist items yet.</Text>}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          }
         />
       )}
     </View>

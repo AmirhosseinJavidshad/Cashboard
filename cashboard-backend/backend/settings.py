@@ -11,6 +11,8 @@ https://docs.djangoproject.com/en/4.1/ref/settings/
 """
 
 from pathlib import Path
+from datetime import timedelta
+
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -26,7 +28,6 @@ SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY")
 DEBUG = True
 
 ALLOWED_HOSTS = ['*']
-
 
 # Application definition
 
@@ -114,8 +115,21 @@ REST_FRAMEWORK = {
         'rest_framework.renderers.JSONRenderer',
         'rest_framework.renderers.BrowsableAPIRenderer',
     ],
+
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 50,
+
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    ),
+
+}
+
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=15),   # short lived
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=30),     # long lived
+    'ROTATE_REFRESH_TOKENS': True,  # issue new refresh each time
+    'BLACKLIST_AFTER_ROTATION': True, # old refresh becomes invalid
 }
 
 CORS_ALLOW_ALL_ORIGINS = True  # (or restrict to your frontend domain later)
@@ -142,3 +156,5 @@ STATIC_ROOT = BASE_DIR / 'backend' / 'static'  # this will collect files in back
 # https://docs.djangoproject.com/en/4.1/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+AUTH_USER_MODEL = "core.User"
