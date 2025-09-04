@@ -17,6 +17,7 @@ from django.contrib import admin
 from django.urls import path, include
 from django.views.generic import RedirectView
 from core.views import GuestUserCreateView
+from django.http import JsonResponse
 
 # ✅ import SimpleJWT views
 from rest_framework_simplejwt.views import (
@@ -25,10 +26,13 @@ from rest_framework_simplejwt.views import (
     TokenVerifyView,
 )
 
+def health(_):
+    return JsonResponse({"ok": True, "app": "cashboard", "version": 1})
+
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/', include('core.urls')),
-
+    path("health/", health, name="health"),
     path("guest/create/", GuestUserCreateView.as_view(), name="guest-create"),
 
     # ✅ JWT endpoints
@@ -38,3 +42,4 @@ urlpatterns = [
 
     path('', RedirectView.as_view(url='/admin/', permanent=False)),
 ]
+
