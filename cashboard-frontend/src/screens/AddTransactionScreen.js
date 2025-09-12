@@ -7,8 +7,12 @@ import {
 import { Picker } from '@react-native-picker/picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { addTransaction, syncAllData } from '../database/db';
+import { useAuth } from '../context/AuthContext';
+import { v4 as uuidv4 } from 'uuid';
 
-export default function AddTransactionScreen({ navigation, userId }) {
+export default function AddTransactionScreen({ navigation }) {
+  const { user, token } = useAuth();
+
   const [transactionType, setTransactionType] = useState('expense');
   const [category, setCategory] = useState('');
   const [amount, setAmount] = useState('');
@@ -46,14 +50,16 @@ export default function AddTransactionScreen({ navigation, userId }) {
       is_recurring: isRecurring,
       recurrence_period: isRecurring ? recurrencePeriod : null,
       recurrence_end_date: isRecurring ? recurrenceEndDate.getTime() : null,
-      date: date.getTime(), // store as timestamp
+      date: date.getTime(), // timestamp
+      client_uuid: uuidv4(),
+      user: user?.id ?? null,
     };
 
     try {
       await addTransaction(transaction);
 
-      if (userId) {
-        await syncAllData(userId);
+      if (token) {
+        await syncAllData(token);
       }
 
       navigation.goBack();

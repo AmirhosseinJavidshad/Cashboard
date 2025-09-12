@@ -17,22 +17,21 @@ import { Q } from '@nozbe/watermelondb';
 import { useDatabase } from '@nozbe/watermelondb/hooks';
 import { useObservable } from '@nozbe/watermelondb/hooks';
 import { syncAllData } from '../database/db';
+import { useAuth } from '../context/AuthContext';
 
 I18nManager.allowRTL(true);
 
-export default function TransactionsScreen({ userId }) {
+export default function TransactionsScreen() {
   const navigation = useNavigation();
   const db = useDatabase();
+  const { token } = useAuth();
 
   const [refreshing, setRefreshing] = useState(false);
   const [isOffline, setIsOffline] = useState(false);
 
   // Live query of non-deleted transactions
   const transactions = useObservable(() =>
-    db.collections
-      .get('transactions')
-      .query(Q.where('deleted_at', null))
-      .observe()
+    db.collections.get('transactions').query(Q.where('deleted_at', null)).observe()
   );
 
   const persons = useObservable(() =>
@@ -46,13 +45,14 @@ export default function TransactionsScreen({ userId }) {
   const onRefresh = async () => {
     try {
       setRefreshing(true);
-      await syncAllData(userId);
+      if (token) await syncAllData(token);
       setRefreshing(false);
+      setIsOffline(false);
     } catch (err) {
       console.error("Refresh failed", err);
       setRefreshing(false);
       setIsOffline(true);
-      Alert.alert("Error", "Failed to refresh transactions");
+      Alert.alert("خطا", "بارگذاری تراکنش‌ها ناموفق بود. داده‌ها از حافظه محلی نمایش داده می‌شوند.");
     }
   };
 
@@ -96,10 +96,10 @@ export default function TransactionsScreen({ userId }) {
                 record.synced = false;
               });
             });
-            await syncAllData(userId);
+            if (token) await syncAllData(token);
           } catch (err) {
             console.error('Failed to delete', err);
-            Alert.alert('Error', 'Failed to delete transaction');
+            Alert.alert('خطا', 'حذف تراکنش ناموفق بود.');
           }
         },
       },
@@ -155,7 +155,10 @@ export default function TransactionsScreen({ userId }) {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       />
 
-      <TouchableOpacity style={styles.fab} onPress={() => navigation.navigate('AddTransactionScreen')}>
+      <TouchableOpacity
+        style={styles.fab}
+        onPress={() => navigation.navigate('AddTransaction')}
+      >
         <Icon name="swap-horizontal-outline" size={32} color="white" />
       </TouchableOpacity>
     </View>

@@ -9,81 +9,56 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { BarChart, PieChart } from 'react-native-gifted-charts';
-import { database, syncAllData } from '../database/db';
+import { useDatabase } from '@nozbe/watermelondb/hooks';
+import { useObservable } from '@nozbe/watermelondb/hooks';
+import { syncAllData } from '../database/db';
+import { useAuth } from '../context/AuthContext';
 
 const screenWidth = Dimensions.get('window').width;
+const chartColors = [
+  '#F44336', '#2196F3', '#4CAF50', '#FFC107', '#9C27B0',
+  '#00BCD4', '#FF5722', '#8BC34A', '#E91E63', '#3F51B5',
+];
 
-const DashboardScreen = ({ userId }) => {
-  const [transactions, setTransactions] = useState([]);
-  const [persons, setPersons] = useState([]);
-  const [events, setEvents] = useState([]);
-  const [loading, setLoading] = useState(true);
+export default function DashboardScreen() {
+  const db = useDatabase();
+  const { token } = useAuth();
+
+  const transactions = useObservable(() =>
+    db.collections.get('transactions').query().observe()
+  );
+
   const [dailyData, setDailyData] = useState([]);
   const [expensePieData, setExpensePieData] = useState([]);
   const [incomePieData, setIncomePieData] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    loadDashboardData();
-  }, []);
+    processTransactions(transactions || []);
+  }, [transactions]);
 
-  const loadDashboardData = async () => {
-    try {
-      setLoading(true);
+  useEffect(() => {
+    const syncData = async () => {
+      try {
+        if (!token) return;
+        setLoading(true);
+        await syncAllData(token);
+        setLoading(false);
+      } catch (err) {
+        console.error('Dashboard sync failed:', err);
+        setLoading(false);
+      }
+    };
+    syncData();
+  }, [token]);
 
-      // Load local cached data from WatermelonDB (exclude deleted)
-      const localTxns = await database
-        .collections.get('transactions')
-        .query()
-        .fetch();
-
-      const localPersons = await database.collections.get('persons').query().fetch();
-      const localEvents = await database.collections.get('events').query().fetch();
-
-      const txnsRaw = localTxns.map(t => t._raw);
-      const personsRaw = localPersons.map(p => p._raw);
-      const eventsRaw = localEvents.map(e => e._raw);
-
-      setTransactions(txnsRaw);
-      setPersons(personsRaw);
-      setEvents(eventsRaw);
-      processChartData(txnsRaw);
-
-      // Sync with backend
-      await syncAllData(userId);
-
-      // Reload updated data
-      const updatedTxns = await database.collections.get('transactions').query().fetch();
-      const updatedPersons = await database.collections.get('persons').query().fetch();
-      const updatedEvents = await database.collections.get('events').query().fetch();
-
-      const updatedTxnsRaw = updatedTxns.map(t => t._raw);
-      const updatedPersonsRaw = updatedPersons.map(p => p._raw);
-      const updatedEventsRaw = updatedEvents.map(e => e._raw);
-
-      setTransactions(updatedTxnsRaw);
-      setPersons(updatedPersonsRaw);
-      setEvents(updatedEventsRaw);
-      processChartData(updatedTxnsRaw);
-
-      setLoading(false);
-    } catch (error) {
-      console.error('Failed to load dashboard data:', error);
-      setLoading(false);
-    }
-  };
-
-  const processChartData = (data) => {
+  const processTransactions = (data) => {
     const dailyTotals = {};
     const expenseBreakdown = {};
     const incomeBreakdown = {};
-    let expenseRecurringTotal = 0;
-    let expenseTotal = 0;
-    let incomeRecurringTotal = 0;
-    let incomeTotal = 0;
 
     data.forEach((trx) => {
       if (trx.deleted_at) return; // skip deleted
-
       const dateKey = new Date(trx.date).toISOString().slice(0, 10);
       const amount = Number(trx.amount);
 
@@ -92,12 +67,8 @@ const DashboardScreen = ({ userId }) => {
 
       if (trx.transaction_type === 'expense') {
         expenseBreakdown[trx.category] = (expenseBreakdown[trx.category] || 0) + amount;
-        expenseTotal += amount;
-        if (trx.is_recurring) expenseRecurringTotal += amount;
       } else {
         incomeBreakdown[trx.category] = (incomeBreakdown[trx.category] || 0) + amount;
-        incomeTotal += amount;
-        if (trx.is_recurring) incomeRecurringTotal += amount;
       }
     });
 
@@ -108,16 +79,16 @@ const DashboardScreen = ({ userId }) => {
       expense: dailyTotals[date].expense,
     })));
 
-    const formatPieData = (breakdown, total) =>
+    const formatPieData = (breakdown) =>
       Object.entries(breakdown).map(([category, value], index) => ({
         value,
         label: category,
-        text: `${category}: ${Math.round((value / total) * 100)}%`,
+        text: `${category}: ${Math.round((value / Object.values(breakdown).reduce((a,b)=>a+b,0)) * 100)}%`,
         color: chartColors[index % chartColors.length],
       }));
 
-    setExpensePieData(formatPieData(expenseBreakdown, expenseTotal));
-    setIncomePieData(formatPieData(incomeBreakdown, incomeTotal));
+    setExpensePieData(formatPieData(expenseBreakdown));
+    setIncomePieData(formatPieData(incomeBreakdown));
   };
 
   if (loading) {
@@ -130,7 +101,7 @@ const DashboardScreen = ({ userId }) => {
 
   return (
     <ScrollView style={styles.container}>
-      <Text style={styles.header}>Daily Cash Flow</Text>
+      <Text style={styles.header}>نقدینگی روزانه</Text>
       <ScrollView horizontal>
         <BarChart
           barWidth={24}
@@ -162,8 +133,16 @@ const DashboardScreen = ({ userId }) => {
         />
       </ScrollView>
 
-      <Text style={styles.header}>Expense Breakdown</Text>
-      <PieChart data={expensePieData} donut showText textColor="black" radius={100} innerRadius={60} textSize={12} />
+      <Text style={styles.header}>تجزیه هزینه‌ها</Text>
+      <PieChart
+        data={expensePieData}
+        donut
+        showText
+        textColor="black"
+        radius={100}
+        innerRadius={60}
+        textSize={12}
+      />
       {expensePieData.map((item, index) => (
         <Text key={index} style={styles.legend}>
           <Text style={{ color: item.color }}>■ </Text>
@@ -171,8 +150,16 @@ const DashboardScreen = ({ userId }) => {
         </Text>
       ))}
 
-      <Text style={styles.header}>Income Breakdown</Text>
-      <PieChart data={incomePieData} donut showText textColor="black" radius={100} innerRadius={60} textSize={12} />
+      <Text style={styles.header}>تجزیه درآمدها</Text>
+      <PieChart
+        data={incomePieData}
+        donut
+        showText
+        textColor="black"
+        radius={100}
+        innerRadius={60}
+        textSize={12}
+      />
       {incomePieData.map((item, index) => (
         <Text key={index} style={styles.legend}>
           <Text style={{ color: item.color }}>■ </Text>
@@ -181,20 +168,7 @@ const DashboardScreen = ({ userId }) => {
       ))}
     </ScrollView>
   );
-};
-
-const chartColors = [
-  '#F44336',
-  '#2196F3',
-  '#4CAF50',
-  '#FFC107',
-  '#9C27B0',
-  '#00BCD4',
-  '#FF5722',
-  '#8BC34A',
-  '#E91E63',
-  '#3F51B5',
-];
+}
 
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 16, backgroundColor: '#FAFAFA' },
@@ -203,5 +177,3 @@ const styles = StyleSheet.create({
   barText: { fontSize: 10, color: '#444', textAlign: 'center' },
   legend: { fontSize: 12, marginLeft: 10, marginTop: 4 },
 });
-
-export default DashboardScreen;
