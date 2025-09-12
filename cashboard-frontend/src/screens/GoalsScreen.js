@@ -1,53 +1,42 @@
-// GoalsScreen.js
+// src/screens/GoalsScreen.js
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, TextInput, Button, Image,
   FlatList, StyleSheet, Alert, ActivityIndicator,
   RefreshControl
 } from 'react-native';
-import {
-  getWishlistItems,
-  insertWishlistItem,
-  syncWishlistWithBackend
-} from '../db';
-import digikalaScraper from '../utils/digikalaScraper'; // JS scraper
+import { useDatabase } from '@nozbe/watermelondb/hooks';
+import { useObservable } from '@nozbe/watermelondb/hooks';
+import { Q } from '@nozbe/watermelondb';
+import { addWishlistItem, syncAllData } from '../database/db';
+import digikalaScraper from '../utils/digikalaScraper';
 
-export default function GoalsScreen() {
+export default function GoalsScreen({ userId }) {
+  const db = useDatabase();
   const [url, setUrl] = useState('');
-  const [wishlist, setWishlist] = useState([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
-  // Load wishlist from SQLite
-  const loadWishlist = async () => {
-    setLoading(true);
-    try {
-      const items = await getWishlistItems();
-      setWishlist(items);
-    } catch (err) {
-      console.error('Failed to load wishlist', err);
-      Alert.alert('Error', 'Failed to load wishlist');
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Live query of wishlist items (non-deleted)
+  const wishlist = useObservable(() =>
+    db.collections.get('wishlist_items')
+      .query(Q.where('deleted_at', null))
+      .observe()
+  );
 
-  // Sync local <-> backend
   const syncWishlist = async () => {
     try {
-      await syncWishlistWithBackend();
-      await loadWishlist(); // refresh after sync
+      if (userId) await syncAllData(userId);
     } catch (err) {
       console.error('Sync failed', err);
+      Alert.alert('Error', 'Failed to sync wishlist');
     }
   };
 
   useEffect(() => {
-    loadWishlist();
     syncWishlist();
   }, []);
 
-  // Add new wishlist item
   const submitUrl = async () => {
     if (!url.trim()) {
       Alert.alert('Validation', 'Please enter a product URL');
@@ -56,32 +45,31 @@ export default function GoalsScreen() {
 
     setLoading(true);
     try {
-      // 1️⃣ Try to scrape locally first
-      let scrapedData = { title: '', price: 0, image_url: null, updated_at: new Date() };
+      // Scrape product data locally
+      let scrapedData = { title: '', price: 0, image_url: null, updated_at: new Date().getTime() };
       try {
         const result = await digikalaScraper(url);
-        if (!result.error) {
-          scrapedData = result;
-        } else {
-          console.warn('Local scraper failed, will fallback to backend:', result.error);
-        }
+        if (!result.error) scrapedData = {
+          ...result,
+          updated_at: result.updated_at ? new Date(result.updated_at).getTime() : new Date().getTime()
+        };
       } catch (scrapeErr) {
         console.warn('Local scraping exception:', scrapeErr);
       }
 
-      // 2️⃣ Insert item locally with scraped info
-      await insertWishlistItem(
+      // Insert into WatermelonDB
+      await addWishlistItem({
         url,
-        scrapedData.title,
-        scrapedData.price,
-        scrapedData.image_url,
-        0 // synced flag
-      );
+        title: scrapedData.title || '',
+        price: scrapedData.price || 0,
+        image_url: scrapedData.image_url || null,
+        updated_at: scrapedData.updated_at,
+        synced: false,
+      });
 
       setUrl('');
-      await loadWishlist();
 
-      // 3️⃣ Trigger backend sync (will run digikala_scraper.py on server)
+      // Trigger backend sync
       await syncWishlist();
     } catch (err) {
       console.error('Add wishlist failed', err);
@@ -138,7 +126,7 @@ export default function GoalsScreen() {
         <ActivityIndicator style={{ marginTop: 20 }} />
       ) : (
         <FlatList
-          data={wishlist}
+          data={wishlist || []}
           keyExtractor={(item) => item.id.toString()}
           renderItem={renderItem}
           contentContainerStyle={{ paddingVertical: 20 }}

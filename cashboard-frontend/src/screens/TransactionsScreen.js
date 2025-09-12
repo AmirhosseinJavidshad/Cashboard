@@ -1,5 +1,5 @@
 // src/screens/TransactionsScreen.js
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -13,60 +13,45 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Ionicons';
-import { getEntities, syncAllData } from '../db';
+import { Q } from '@nozbe/watermelondb';
+import { useDatabase } from '@nozbe/watermelondb/hooks';
+import { useObservable } from '@nozbe/watermelondb/hooks';
+import { syncAllData } from '../database/db';
 
 I18nManager.allowRTL(true);
 
 export default function TransactionsScreen({ userId }) {
-  const [transactions, setTransactions] = useState([]);
-  const [persons, setPersons] = useState([]);
-  const [events, setEvents] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const navigation = useNavigation();
+  const db = useDatabase();
+
   const [refreshing, setRefreshing] = useState(false);
   const [isOffline, setIsOffline] = useState(false);
-  const navigation = useNavigation();
 
-  useEffect(() => {
-    loadTransactions();
-  }, []);
+  // Live query of non-deleted transactions
+  const transactions = useObservable(() =>
+    db.collections
+      .get('transactions')
+      .query(Q.where('deleted_at', null))
+      .observe()
+  );
 
-  const loadTransactions = async () => {
-    try {
-      setLoading(true);
-      setIsOffline(false);
+  const persons = useObservable(() =>
+    db.collections.get('persons').query().observe()
+  );
 
-      // Load local cached entities
-      const localTxns = await getEntities("transactions");
-      const localPersons = await getEntities("persons");
-      const localEvents = await getEntities("events");
-
-      setTransactions(localTxns.filter(tx => !tx.deleted_at));
-      setPersons(localPersons);
-      setEvents(localEvents);
-
-      // Sync with backend
-      await syncAllData(userId);
-
-      // Reload updated data
-      const updatedTxns = await getEntities("transactions");
-      setTransactions(updatedTxns.filter(tx => !tx.deleted_at));
-      setLoading(false);
-    } catch (err) {
-      console.error("Error loading transactions", err);
-      setIsOffline(true);
-      setLoading(false);
-    }
-  };
+  const events = useObservable(() =>
+    db.collections.get('events').query().observe()
+  );
 
   const onRefresh = async () => {
     try {
       setRefreshing(true);
       await syncAllData(userId);
-      await loadTransactions();
       setRefreshing(false);
     } catch (err) {
       console.error("Refresh failed", err);
       setRefreshing(false);
+      setIsOffline(true);
       Alert.alert("Error", "Failed to refresh transactions");
     }
   };
@@ -88,16 +73,16 @@ export default function TransactionsScreen({ userId }) {
   };
 
   const getPersonName = (personId) => {
-    const p = persons.find(per => per.id === personId);
+    const p = persons?.find(per => per.id === personId);
     return p ? p.name : '—';
   };
 
   const getEventName = (eventId) => {
-    const e = events.find(ev => ev.id === eventId);
+    const e = events?.find(ev => ev.id === eventId);
     return e ? e.title : '—';
   };
 
-  const handleDelete = (tx) => {
+  const handleDelete = async (tx) => {
     Alert.alert('حذف تراکنش', 'آیا مطمئن هستید؟', [
       { text: 'لغو' },
       {
@@ -105,13 +90,13 @@ export default function TransactionsScreen({ userId }) {
         style: 'destructive',
         onPress: async () => {
           try {
-            // Soft delete
-            await getEntities('transactions').then(list => {
-              const idx = list.findIndex(t => t.id === tx.id);
-              if (idx >= 0) list[idx].deleted_at = new Date().toISOString();
+            await db.write(async () => {
+              await tx.update((record) => {
+                record.deleted_at = Date.now();
+                record.synced = false;
+              });
             });
             await syncAllData(userId);
-            loadTransactions();
           } catch (err) {
             console.error('Failed to delete', err);
             Alert.alert('Error', 'Failed to delete transaction');
@@ -124,27 +109,26 @@ export default function TransactionsScreen({ userId }) {
   const renderItem = ({ item }) => {
     const sign = item.transaction_type === 'income' ? '+' : '-';
     const amountColor = item.transaction_type === 'income' ? '#27ae60' : '#c0392b';
-    const dateObj = new Date(item.date || item.created_at);
+    const dateObj = new Date(item.date);
     const formattedDate = dateObj.toLocaleDateString('fa-IR', { year: 'numeric', month: '2-digit', day: '2-digit' });
     const formattedTime = dateObj.toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' });
-    const allTags = [...(item.tags_people || []), ...(item.tags_events || [])];
 
     return (
       <View style={styles.card}>
         <Text style={styles.date}>{formattedDate} {formattedTime}</Text>
         <View style={styles.amountRow}>
           <Text style={[styles.amount, { color: amountColor }]}>
-            {toPersianDigits(item.amount.toLocaleString())}<Text style={styles.sign}>{sign}</Text> ریال
+            {toPersianDigits(item.amount.toLocaleString())}
+            <Text style={styles.sign}>{sign}</Text> ریال
           </Text>
         </View>
         <View style={styles.categoryRow}>
-          <Text style={styles.categoryText}>{categoryIcons[item.category] || '📁'} {categoryLabels[item.category] || item.category}</Text>
+          <Text style={styles.categoryText}>
+            {categoryIcons[item.category] || '📁'} {categoryLabels[item.category] || item.category}
+          </Text>
         </View>
         {item.is_recurring ? <Text style={styles.recurrence}>{item.recurrence_period || '—'}</Text> : null}
-        <View style={styles.bottomRow}>
-          <View style={styles.tagsColumn}>{allTags.map((tag, idx) => <Text key={idx} style={styles.tag}># {tag.name}</Text>)}</View>
-          {item.note ? <Text style={styles.note}>#{item.note}</Text> : null}
-        </View>
+        {item.note ? <Text style={styles.note}>#{item.note}</Text> : null}
         <TouchableOpacity onPress={() => handleDelete(item)} style={{ marginTop: 10 }}>
           <Text style={{ color: 'red', fontWeight: 'bold' }}>حذف</Text>
         </TouchableOpacity>
@@ -152,7 +136,7 @@ export default function TransactionsScreen({ userId }) {
     );
   };
 
-  if (loading) {
+  if (!transactions) {
     return (
       <View style={styles.centered}>
         <ActivityIndicator size="large" color="#333" />
@@ -165,7 +149,7 @@ export default function TransactionsScreen({ userId }) {
       {isOffline && <Text style={styles.offlineBanner}>حالت آفلاین: تراکنش‌ها از حافظه محلی نمایش داده می‌شوند</Text>}
 
       <FlatList
-        data={transactions.sort((a, b) => new Date(b.date || b.created_at) - new Date(a.date || a.created_at))}
+        data={transactions.slice().sort((a, b) => new Date(b.date) - new Date(a.date))}
         keyExtractor={(item) => item.id.toString()}
         renderItem={renderItem}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
@@ -189,9 +173,6 @@ const styles = StyleSheet.create({
   categoryRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', marginBottom: 6 },
   categoryText: { fontSize: 22, fontWeight: '500', color: '#333', textAlign: 'right', writingDirection: 'rtl' },
   recurrence: { fontSize: 14, color: '#888', textAlign: 'right', marginBottom: 4 },
-  bottomRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 },
-  tagsColumn: { flexDirection: 'column' },
-  tag: { fontSize: 13, color: '#555', marginBottom: 2 },
   note: { fontSize: 13, color: '#777', fontStyle: 'italic' },
   fab: { position: 'absolute', bottom: 24, right: 24, backgroundColor: '#2e86de', width: 56, height: 56, borderRadius: 28, justifyContent: 'center', alignItems: 'center', elevation: 5 },
 });

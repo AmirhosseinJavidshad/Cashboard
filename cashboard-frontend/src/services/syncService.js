@@ -1,43 +1,31 @@
-import axios from 'axios';
-import { storage, getClientUUID } from '../storage';
+// syncservice.js
+import { syncAllData } from '../db';
+import { storage } from '../storage';
 
-const API_URL = 'https://YOUR_API_URL'; // put your backend URL here
+const LAST_SYNC_KEY = 'last_sync';
 
-export async function pushLocalData() {
+export async function pushLocalData(userId, token) {
   try {
-    const transactions = JSON.parse(storage.getString('transactions') || '[]');
-    const persons = JSON.parse(storage.getString('persons') || '[]');
-    const events = JSON.parse(storage.getString('events') || '[]');
-    const wishlist = JSON.parse(storage.getString('wishlist') || '[]');
-
-    transactions.forEach(t => { if (!t.client_uuid) t.client_uuid = getClientUUID(`transaction-${t.id}`); });
-    persons.forEach(p => { if (!p.client_uuid) p.client_uuid = getClientUUID(`person-${p.id}`); });
-    events.forEach(e => { if (!e.client_uuid) e.client_uuid = getClientUUID(`event-${e.id}`); });
-    wishlist.forEach(w => { if (!w.client_uuid) w.client_uuid = getClientUUID(`wishlist-${w.id}`); });
-
-    const response = await axios.post(`${API_URL}/sync/push/`, {
-      transactions, persons, events, wishlist,
-    });
-
-    console.log('Push successful:', response.data);
+    await syncAllData(userId, token); // handles axios inside db.js
+    const now = new Date().toISOString();
+    storage.set(LAST_SYNC_KEY, now);
+    console.log('Push successful at', now);
   } catch (err) {
-    console.log('Push error:', err);
+    console.error('Push error:', err);
   }
 }
 
-export async function pullServerData(since = null) {
+export async function pullServerData(userId, token) {
   try {
-    const url = since ? `${API_URL}/sync/pull/?since=${since}` : `${API_URL}/sync/pull/`;
-    const response = await axios.get(url);
-    const data = response.data;
-
-    storage.set('transactions', JSON.stringify(data.transactions));
-    storage.set('persons', JSON.stringify(data.persons));
-    storage.set('events', JSON.stringify(data.events));
-    storage.set('wishlist', JSON.stringify(data.wishlist));
-
-    console.log('Pull successful');
+    await syncAllData(userId, token);
+    const now = new Date().toISOString();
+    storage.set(LAST_SYNC_KEY, now);
+    console.log('Pull successful at', now);
   } catch (err) {
-    console.log('Pull error:', err);
+    console.error('Pull error:', err);
   }
+}
+
+export function getLastSyncTime() {
+  return storage.getString(LAST_SYNC_KEY) || null;
 }
