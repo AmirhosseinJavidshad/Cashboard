@@ -1,0 +1,35 @@
+# Environment / secrets
+.env
+.env.*
+!.env.example
+.secret-to-remove
+.secret-replacement.txt
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Node
+node_modules/
+
+# Android / Gradle
+.gradle/
+**/android/.gradle-user-home/
+**/android/*.log
+**/android/debug.txt
+**/android/packages-before.txt
+**/android/gradle-info.txt
+**/android/stacktrace.txt
+
+# Generated bundles
+*.bundle.js
+bundle.js
+
+# General build output
+build/
+coverage/
+
+# IDE
+.idea/
+.vscode/
+*.iml
